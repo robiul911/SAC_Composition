@@ -51,11 +51,9 @@ def optimize_alloy(model, requirements, prices, n_iter=5000):
     best_comp = None
 
     for _ in range(n_iter):
-        ag = np.random.uniform(0, 4.0)
-        cu = np.random.uniform(0, 0.7)
+        ag = np.random.uniform(-5, 5)   # allow negative values
+        cu = np.random.uniform(-1, 1)   # allow negative values
         sn = 100 - ag - cu
-        if sn <= 0:
-            continue
         cost, pred, comp = evaluate_composition(sn, ag, cu, model, requirements, prices)
         if cost < best_cost:
             best_cost = cost
@@ -67,40 +65,47 @@ def optimize_alloy(model, requirements, prices, n_iter=5000):
 # -----------------------------
 # 3. Streamlit UI
 # -----------------------------
+st.set_page_config(page_title="SAC Alloy Optimizer", layout="wide")
 st.title("🔬 SAC Alloy Optimizer (Sn–Ag–Cu)")
 st.write("Find the cheapest Sn–Ag–Cu alloy composition that meets your property requirements.")
 
-# User inputs
-st.sidebar.header("⚙️ Input Parameters")
+# User inputs using columns
+col1, col2 = st.columns(2)
 
-req_strength = st.sidebar.number_input("Required Yield Strength (MPa)", 10.0, 200.0, 85.0)
-req_temp = st.sidebar.number_input("Required Melting Temperature (°C)", 100.0, 300.0, 150.0)
-req_cond = st.sidebar.number_input("Required Electrical Conductivity (MS/m)", 1.0, 200.0, 160.0)
+with col1:
+    st.header("⚙️ Input Requirements")
+    req_strength = st.number_input("Yield Strength (MPa)", value=85.0, step=1.0, format="%.2f")
+    req_temp = st.number_input("Melting Temperature (°C)", value=150.0, step=1.0, format="%.2f")
+    req_cond = st.number_input("Electrical Conductivity (MS/m)", value=160.0, step=1.0, format="%.2f")
 
-st.sidebar.header("💰 Market Prices (per % unit in TAKA)")
-price_Ag = st.sidebar.number_input("Silver (Ag)", 1.0, 1000.0, 10.0)
-price_Cu = st.sidebar.number_input("Copper (Cu)", 1.0, 1000.0, 120.0)
-price_Sn = st.sidebar.number_input("Tin (Sn)", 1.0, 1000.0, 10.0)
+with col2:
+    st.header("💰 Market Prices per % Composition")
+    price_Ag = st.number_input("Silver (Ag)", value=10.0, step=1.0, format="%.2f")
+    price_Cu = st.number_input("Copper (Cu)", value=120.0, step=1.0, format="%.2f")
+    price_Sn = st.number_input("Tin (Sn)", value=10.0, step=1.0, format="%.2f")
 
 requirements = {'Strength': req_strength, 'Melting_Temp': req_temp, 'Conductivity': req_cond}
 prices = {'Ag': price_Ag, 'Cu': price_Cu, 'Sn': price_Sn}
 
+# Optimize Button with spinner
 if st.button("🔎 Optimize Alloy"):
-    best_comp, best_cost, best_pred = optimize_alloy(model, requirements, prices, n_iter=10000)
+    with st.spinner("⏳ Optimization running, please wait..."):
+        best_comp, best_cost, best_pred = optimize_alloy(model, requirements, prices, n_iter=10000)
 
     if best_comp:
         sn, ag, cu = best_comp
         st.success("✅ Optimal SAC Composition Found")
-        st.write(f"**Sn:** {sn:.2f} %")
-        st.write(f"**Ag:** {ag:.2f} %")
-        st.write(f"**Cu:** {cu:.2f} %")
+        st.metric("Sn (%)", f"{sn:.2f}")
+        st.metric("Ag (%)", f"{ag:.2f}")
+        st.metric("Cu (%)", f"{cu:.2f}")
 
         st.subheader("📐 Predicted Properties")
         st.write(f"- Yield Strength: **{best_pred[0]:.2f} MPa**")
-        st.write(f"- Melting Temp: **{best_pred[1]:.2f} °C**")
-        st.write(f"- Conductivity: **{best_pred[2]:.2f} MS/m**")
+        st.write(f"- Melting Temperature: **{best_pred[1]:.2f} °C**")
+        st.write(f"- Electrical Conductivity: **{best_pred[2]:.2f} MS/m**")
 
         st.subheader("💰 Estimated Cost")
         st.write(f"**{best_cost:.2f} TAKA**")
     else:
         st.error("❌ No feasible composition found with the given requirements.")
+
