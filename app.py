@@ -28,39 +28,45 @@ model = MultiOutputRegressor(RandomForestRegressor(n_estimators=200, random_stat
 model.fit(X_train, y_train)
 
 # -----------------------------
-# 2. Optimization Function
+# 2. Vectorized Optimization Function
 # -----------------------------
-def evaluate_composition(sn, ag, cu, model, requirements, prices):
-    """Evaluate a composition for feasibility and cost"""
-    input_df = pd.DataFrame([[sn, ag, cu]], columns=['Sn', 'Ag', 'Cu'])
+def optimize_alloy_vectorized(model, requirements, prices, n_iter=50000):
+    # Generate candidate compositions
+    ag = np.random.uniform(-5, 5, n_iter)
+    cu = np.random.uniform(-1, 1, n_iter)
+    sn = 100 - ag - cu
+
+    # Filter invalid compositions
+    valid_idx = sn > 0
+    sn, ag, cu = sn[valid_idx], ag[valid_idx], cu[valid_idx]
+
+    if len(sn) == 0:
+        return None, None, None
+
+    # Predict all properties at once
+    input_df = pd.DataFrame({'Sn': sn, 'Ag': ag, 'Cu': cu})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        pred = model.predict(input_df)[0]
-    strength, temp, cond = pred
-    if (strength >= requirements['Strength'] and
-        temp >= requirements['Melting_Temp'] and
-        cond >= requirements['Conductivity']):
-        cost = sn*prices['Sn'] + ag*prices['Ag'] + cu*prices['Cu']
-        return cost, pred, (sn, ag, cu)
+        preds = model.predict(input_df)
+
+    strength = preds[:, 0]
+    temp = preds[:, 1]
+    cond = preds[:, 2]
+
+    # Filter by user requirements
+    mask = (strength >= requirements['Strength']) & \
+           (temp >= requirements['Melting_Temp']) & \
+           (cond >= requirements['Conductivity'])
+
+    if mask.any():
+        costs = sn[mask]*prices['Sn'] + ag[mask]*prices['Ag'] + cu[mask]*prices['Cu']
+        best_idx = np.argmin(costs)
+        best_comp = (sn[mask][best_idx], ag[mask][best_idx], cu[mask][best_idx])
+        best_pred = preds[mask][best_idx]
+        best_cost = costs[best_idx]
+        return best_comp, best_cost, best_pred
     else:
-        return np.inf, pred, (sn, ag, cu)
-
-def optimize_alloy(model, requirements, prices, n_iter=5000):
-    best_cost = np.inf
-    best_pred = None
-    best_comp = None
-
-    for _ in range(n_iter):
-        ag = np.random.uniform(-5, 5)   # allow negative values
-        cu = np.random.uniform(-1, 1)   # allow negative values
-        sn = 100 - ag - cu
-        cost, pred, comp = evaluate_composition(sn, ag, cu, model, requirements, prices)
-        if cost < best_cost:
-            best_cost = cost
-            best_pred = pred
-            best_comp = comp
-
-    return best_comp, best_cost, best_pred
+        return None, None, None
 
 # -----------------------------
 # 3. Streamlit UI
@@ -69,7 +75,7 @@ st.set_page_config(page_title="SAC Alloy Optimizer", layout="wide")
 st.title("🔬 SAC Alloy Optimizer (Sn–Ag–Cu)")
 st.write("Find the cheapest Sn–Ag–Cu alloy composition that meets your property requirements.")
 
-# User inputs using columns
+# Inputs in two columns
 col1, col2 = st.columns(2)
 
 with col1:
@@ -87,10 +93,9 @@ with col2:
 requirements = {'Strength': req_strength, 'Melting_Temp': req_temp, 'Conductivity': req_cond}
 prices = {'Ag': price_Ag, 'Cu': price_Cu, 'Sn': price_Sn}
 
-# Optimize Button with spinner
 if st.button("🔎 Optimize Alloy"):
     with st.spinner("⏳ Optimization running, please wait..."):
-        best_comp, best_cost, best_pred = optimize_alloy(model, requirements, prices, n_iter=10000)
+        best_comp, best_cost, best_pred = optimize_alloy_vectorized(model, requirements, prices, n_iter=50000)
 
     if best_comp:
         sn, ag, cu = best_comp
