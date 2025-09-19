@@ -5,6 +5,8 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.multioutput import MultiOutputRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+import matplotlib.pyplot as plt
 import warnings
 
 # -----------------------------
@@ -31,19 +33,15 @@ model.fit(X_train, y_train)
 # 2. Vectorized Optimization Function
 # -----------------------------
 def optimize_alloy_vectorized(model, requirements, prices, n_iter=50000):
-    # Generate candidate compositions
     ag = np.random.uniform(-5, 5, n_iter)
     cu = np.random.uniform(-1, 1, n_iter)
     sn = 100 - ag - cu
-
-    # Filter invalid compositions
     valid_idx = sn > 0
     sn, ag, cu = sn[valid_idx], ag[valid_idx], cu[valid_idx]
 
     if len(sn) == 0:
         return None, None, None
 
-    # Predict all properties at once
     input_df = pd.DataFrame({'Sn': sn, 'Ag': ag, 'Cu': cu})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -53,7 +51,6 @@ def optimize_alloy_vectorized(model, requirements, prices, n_iter=50000):
     temp = preds[:, 1]
     cond = preds[:, 2]
 
-    # Filter by user requirements
     mask = (strength >= requirements['Strength']) & \
            (temp >= requirements['Melting_Temp']) & \
            (cond >= requirements['Conductivity'])
@@ -93,6 +90,9 @@ with col2:
 requirements = {'Strength': req_strength, 'Melting_Temp': req_temp, 'Conductivity': req_cond}
 prices = {'Ag': price_Ag, 'Cu': price_Cu, 'Sn': price_Sn}
 
+# -----------------------------
+# 4. Optimize Alloy
+# -----------------------------
 if st.button("🔎 Optimize Alloy"):
     with st.spinner("⏳ Optimization running, please wait..."):
         best_comp, best_cost, best_pred = optimize_alloy_vectorized(model, requirements, prices, n_iter=50000)
@@ -114,3 +114,33 @@ if st.button("🔎 Optimize Alloy"):
     else:
         st.error("❌ No feasible composition found with the given requirements.")
 
+# -----------------------------
+# 5. Optional Evaluation Script
+# -----------------------------
+if st.checkbox("Show Model Evaluation Script"):
+    st.subheader("📊 Model Evaluation Metrics")
+    y_pred = model.predict(X_test)
+
+    for i, col in enumerate(y.columns):
+        mse = mean_squared_error(y_test[col], y_pred[:, i])
+        r2 = r2_score(y_test[col], y_pred[:, i])
+        st.write(f"**{col}**: MSE = {mse:.2f}, R² = {r2:.2f}")
+
+    st.subheader("🔹 Predicted vs Actual Plots")
+    for i, col in enumerate(y.columns):
+        fig, ax = plt.subplots()
+        ax.scatter(y_test[col], y_pred[:, i], alpha=0.5)
+        ax.plot([y_test[col].min(), y_test[col].max()],
+                [y_test[col].min(), y_test[col].max()], 'r--')
+        ax.set_xlabel("Actual")
+        ax.set_ylabel("Predicted")
+        ax.set_title(f"{col}: Predicted vs Actual")
+        st.pyplot(fig)
+
+    st.subheader("🔹 Feature Importance per Target")
+    for i, target in enumerate(y.columns):
+        importances = model.estimators_[i].feature_importances_
+        fig, ax = plt.subplots()
+        ax.bar(X.columns, importances)
+        ax.set_title(f"Feature Importance for {target}")
+        st.pyplot(fig)
